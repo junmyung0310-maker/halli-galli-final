@@ -42,6 +42,7 @@ class HalliGalliGame:
         self.root.configure(bg="#1b3323")
         self.players = [Player("나 (Player)", False), Player("컴퓨터 1", True), Player("컴퓨터 2", True)]
         self.table_cards, self.current_turn, self.ai_timer, self.game_over = [], 0, None, False
+        self.card_locked, self.bell_cooldown = False, False
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.root.protocol("WM_DELETE_WINDOW", self.close_game)
         self._build_ui()
@@ -90,6 +91,8 @@ class HalliGalliGame:
     def start_game(self):
         self.cancel_timer()
         self.game_over = False
+        self.card_locked = False
+        self.bell_cooldown = False
         self.score_submitted = False
         self.wrong_bells = 0
         self.correct_bells = 0
@@ -105,7 +108,7 @@ class HalliGalliGame:
         self.check_ai_turn()
 
     def user_play_card(self):
-        if self.game_over: return
+        if self.game_over or self.card_locked: return
         if self.players[self.current_turn].is_ai:
             self.msg_lbl.config(text=f"지금은 {self.players[self.current_turn].name} 차례입니다!")
             return
@@ -121,10 +124,12 @@ class HalliGalliGame:
         msg = f"{p.name}님이 {c.fruit.split()[0]} {c.count}개를 냈습니다."
         fruit = self.check_five()
         if fruit:
+            self.card_locked = True
             # 정답 힌트를 표시하지 않고 플레이어가 카드를 직접 관찰하도록 한다.
             self.update_board(msg)
             self.ai_timer = self.root.after(random.randint(1800, 2600), lambda: self.ring_bell(random.choice([1, 2])))
         else:
+            self.card_locked = False
             if any(pl.card_count == 0 for pl in self.players):
                 self.update_board(msg)
                 self.root.after(1000, self.end_game)
@@ -147,11 +152,13 @@ class HalliGalliGame:
         return None
 
     def ring_bell(self, p_idx):
-        if self.game_over: return
+        if self.game_over or self.bell_cooldown: return
+        self.bell_cooldown = True
         self.cancel_timer()
         p = self.players[p_idx]
         fruit = self.check_five()
         if fruit:
+            self.card_locked = False
             if p_idx == 0:
                 self.correct_bells += 1
             won = len(self.table_cards)
@@ -171,7 +178,12 @@ class HalliGalliGame:
             self.update_board(f"❌ 오답! 과일 합이 5개가 아닙니다. {p.name}님이 페널티 카드 1장을 냈습니다.")
             if any(pl.card_count == 0 for pl in self.players): self.root.after(1200, self.end_game)
             else: self.root.after(800, self.check_ai_turn)
-        self.root.after(350, lambda: self.bell_btn.config(bg="#f1c40f"))
+        self.root.after(400, self._reset_bell_button)
+
+    def _reset_bell_button(self):
+        if self.root.winfo_exists():
+            self.bell_btn.config(bg="#f1c40f")
+        self.bell_cooldown = False
 
     def update_board(self, msg=""):
         self.status_lbl.config(text=f"현재 턴: [{self.players[self.current_turn].name}] 차례")
